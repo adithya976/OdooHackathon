@@ -37,8 +37,8 @@ A complete full-stack web application for skill swapping between users, built wi
 - **PostgreSQL** (v12 or higher)
 - **npm** or **pnpm**
 
-
-### 6. Start Development Server
+## Way to Run : 
+### 1. Start Development Server
 ```bash
 npm run dev
 ```

@@ -17,6 +17,7 @@ export async function GET(request) {
     const skill = searchParams.get('skill') || '';
     const availability = searchParams.get('availability') || '';
     const category = searchParams.get('category') || '';
+    const excludeUserId = searchParams.get('excludeUserId') || '';
 
     const client = await pool.connect();
 
@@ -68,6 +69,13 @@ export async function GET(request) {
           AND s.category = $${paramCount}
         )`;
         params.push(category);
+      }
+
+      // Exclude current user if provided
+      if (excludeUserId) {
+        paramCount++;
+        query += ` AND p.id != $${paramCount}`;
+        params.push(excludeUserId);
       }
 
       query += ` GROUP BY p.id ORDER BY p.created_at DESC`;

@@ -81,10 +81,15 @@ export default function BrowsePage() {
     checkAuth()
   }, [])
 
-  // Load user skills when user changes
+  // Load user skills and profiles when user changes
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
+      console.log('User loaded, loading skills and profiles for user:', user.id)
       loadUserSkills()
+      // Also load profiles now that user is available
+      searchProfiles()
+    } else if (user && !user.id) {
+      console.log('User object exists but no ID, waiting for ID...')
     }
   }, [user])
 
@@ -121,6 +126,7 @@ export default function BrowsePage() {
       
       if (response.ok) {
         const data = await response.json()
+        console.log('Current user loaded:', data.user)
         setUser(data.user)
         await loadData()
       } else {
@@ -161,8 +167,7 @@ export default function BrowsePage() {
         }
       }
 
-      // Load profiles
-      await searchProfiles()
+      // Profiles will be loaded by useEffect when user is available
     } catch (error) {
       console.error('Failed to load data:', error)
       setError('Failed to load data. Please try again.')
@@ -179,6 +184,14 @@ export default function BrowsePage() {
       if (selectedSkill !== 'all') params.append('skill', selectedSkill)
       if (selectedAvailability !== 'all') params.append('availability', selectedAvailability)
       if (selectedCategory !== 'all') params.append('category', selectedCategory)
+      
+      // Exclude current user from API level
+      if (user?.id) {
+        params.append('excludeUserId', user.id)
+        console.log('Excluding current user ID:', user.id)
+      } else {
+        console.log('No user ID available for exclusion')
+      }
 
       console.log('Searching profiles with params:', params.toString())
       
@@ -187,13 +200,21 @@ export default function BrowsePage() {
       
       if (response.ok) {
         const data = await response.json()
-        console.log('Profiles loaded:', data.length, 'profiles:', data)
+        console.log('Profiles loaded (already filtered):', data.length, 'profiles')
+        console.log('Profile IDs:', data.map((p: Profile) => p.id))
         
-        // Filter out current user
-        const filteredProfiles = data.filter((profile: Profile) => profile.id !== user?.id)
-        console.log('Filtered profiles (excluding current user):', filteredProfiles.length)
-        
-        setProfiles(filteredProfiles)
+        // Double-check that current user is not in the results
+        const currentUserInResults = data.some((profile: Profile) => profile.id === user?.id)
+        if (currentUserInResults) {
+          console.error('ERROR: Current user found in results despite exclusion!')
+          // Fallback: filter out current user on client side
+          const filteredData = data.filter((profile: Profile) => profile.id !== user?.id)
+          console.log('Fallback filtering applied, remaining profiles:', filteredData.length)
+          setProfiles(filteredData)
+        } else {
+          console.log('✅ Current user correctly excluded from results')
+          setProfiles(data)
+        }
       } else {
         console.error('Failed to search profiles:', response.status)
         const errorData = await response.json()
@@ -261,21 +282,21 @@ export default function BrowsePage() {
   }
 
   const getOfferedSkills = (profile: Profile) => {
-    return profile.user_skills.filter(skill => skill.skill_type === 'offered')
+    const offeredSkills = profile.user_skills.filter(skill => skill.skill_type === 'offered')
+    console.log(`Offered skills for ${profile.name}:`, offeredSkills.length)
+    return offeredSkills
   }
 
   const getWantedSkills = (profile: Profile) => {
-    return profile.user_skills.filter(skill => skill.skill_type === 'wanted')
+    const wantedSkills = profile.user_skills.filter(skill => skill.skill_type === 'wanted')
+    console.log(`Wanted skills for ${profile.name}:`, wantedSkills.length)
+    return wantedSkills
   }
 
   const getCurrentUserOfferedSkills = () => {
-    return userSkills.filter(skill => skill.skill_type === 'offered')
-  }
-
-  const getUserOfferedSkills = () => {
-    if (!user) return []
-    // This would need to be loaded from the user's profile
-    return []
+    const offeredSkills = userSkills.filter(skill => skill.skill_type === 'offered')
+    console.log('Current user offered skills:', offeredSkills.length)
+    return offeredSkills
   }
 
   if (loading) {
@@ -321,6 +342,17 @@ export default function BrowsePage() {
           <p className="text-sm text-gray-500 mt-1">
             Only users with public profiles are shown here. Users can control their privacy in their dashboard.
           </p>
+          <p className="text-sm text-blue-600 mt-1">
+            Current user: {user.name} (ID: {user.id})
+          </p>
+          <div className="text-xs text-gray-500 mt-1">
+            <p>Debug Info:</p>
+            <p>• User loaded: {user ? 'Yes' : 'No'}</p>
+            <p>• User ID: {user?.id || 'Not available'}</p>
+            <p>• Profiles loaded: {profiles.length}</p>
+            <p>• Skills loaded: {skills.length}</p>
+            <p>• User skills: {userSkills.length}</p>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -399,158 +431,170 @@ export default function BrowsePage() {
             <div className="col-span-full text-center py-12">
               <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-500">No users found matching your criteria</p>
+              <p className="text-sm text-gray-400 mt-2">
+                Found {profiles.length} profiles (excluding your own profile)
+              </p>
             </div>
           ) : (
-            profiles.map((profile) => (
-              <Card key={profile.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-lg">{profile.name}</CardTitle>
-                      <CardDescription className="flex items-center gap-1 mt-1">
-                        <MapPin className="h-3 w-3" />
-                        {profile.location || 'Location not specified'}
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Star className="h-4 w-4 text-yellow-500 fill-current" />
-                      <span className="text-sm font-medium">{profile.rating.toFixed(1)}</span>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {profile.bio && (
-                    <p className="text-sm text-gray-600 line-clamp-2">{profile.bio}</p>
-                  )}
-                  
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <Calendar className="h-3 w-3" />
-                    <span className="capitalize">{profile.availability}</span>
-                  </div>
-
-                  {/* Skills */}
-                  <div className="space-y-3">
-                    <div>
-                      <h4 className="text-sm font-medium text-green-700 mb-2">Offers:</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {getOfferedSkills(profile).map((userSkill) => (
-                          <Badge key={userSkill.id} variant="secondary" className="text-xs">
-                            {userSkill.skill.name}
-                          </Badge>
-                        ))}
-                        {getOfferedSkills(profile).length === 0 && (
-                          <span className="text-xs text-gray-500">No skills offered</span>
-                        )}
+            profiles.map((profile) => {
+              const offeredSkills = getOfferedSkills(profile)
+              const wantedSkills = getWantedSkills(profile)
+              
+              return (
+                <Card key={profile.id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-lg">{profile.name}</CardTitle>
+                        <CardDescription className="flex items-center gap-1 mt-1">
+                          <MapPin className="h-3 w-3" />
+                          {profile.location || 'Location not specified'}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Star className="h-4 w-4 text-yellow-500 fill-current" />
+                        <span className="text-sm font-medium">{profile.rating.toFixed(1)}</span>
                       </div>
                     </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {profile.bio && (
+                      <p className="text-sm text-gray-600 line-clamp-2">{profile.bio}</p>
+                    )}
                     
-                    <div>
-                      <h4 className="text-sm font-medium text-blue-700 mb-2">Wants:</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {getWantedSkills(profile).map((userSkill) => (
-                          <Badge key={userSkill.id} variant="outline" className="text-xs">
-                            {userSkill.skill.name}
-                          </Badge>
-                        ))}
-                        {getWantedSkills(profile).length === 0 && (
-                          <span className="text-xs text-gray-500">No skills wanted</span>
-                        )}
-                      </div>
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Calendar className="h-3 w-3" />
+                      <span className="capitalize">{profile.availability}</span>
                     </div>
-                  </div>
 
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button 
-                        className="w-full" 
-                        onClick={() => setSelectedProfile(profile)}
-                      >
-                        <Handshake className="h-4 w-4 mr-2" />
-                        Request Swap
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Request Skill Swap</DialogTitle>
-                        <DialogDescription>
-                          Send a swap request to {profile.name}
-                        </DialogDescription>
-                      </DialogHeader>
-                      
-                      {error && (
-                        <Alert>
-                          <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                      )}
-                      
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="fromSkill">Your Skill (You Offer)</Label>
-                          <Select 
-                            value={requestForm.fromSkillId} 
-                            onValueChange={(value) => setRequestForm({...requestForm, fromSkillId: value})}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select your skill" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getCurrentUserOfferedSkills().map((userSkill) => (
-                                <SelectItem key={userSkill.id} value={userSkill.skill.id}>
-                                  {userSkill.skill.name} ({userSkill.proficiency_level})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {getCurrentUserOfferedSkills().length === 0 && (
-                            <p className="text-xs text-red-500 mt-1">You need to add skills to your profile first</p>
+                    {/* Skills */}
+                    <div className="space-y-3">
+                      <div>
+                        <h4 className="text-sm font-medium text-green-700 mb-2">
+                          Offers ({offeredSkills.length}):
+                        </h4>
+                        <div className="flex flex-wrap gap-1">
+                          {offeredSkills.map((userSkill) => (
+                            <Badge key={userSkill.id} variant="secondary" className="text-xs">
+                              {userSkill.skill.name}
+                            </Badge>
+                          ))}
+                          {offeredSkills.length === 0 && (
+                            <span className="text-xs text-gray-500">No skills offered</span>
                           )}
                         </div>
-                        
-                        <div>
-                          <Label htmlFor="toSkill">Their Skill (You Want)</Label>
-                          <Select 
-                            value={requestForm.toSkillId} 
-                            onValueChange={(value) => setRequestForm({...requestForm, toSkillId: value})}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select their skill" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {getOfferedSkills(profile).map((userSkill) => (
-                                <SelectItem key={userSkill.id} value={userSkill.skill.id}>
-                                  {userSkill.skill.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
-                        <div>
-                          <Label htmlFor="message">Message</Label>
-                          <Textarea
-                            id="message"
-                            placeholder="Introduce yourself and explain what you'd like to learn..."
-                            value={requestForm.message}
-                            onChange={(e) => setRequestForm({...requestForm, message: e.target.value})}
-                            rows={3}
-                          />
-                        </div>
-                        
-                        <Button 
-                          onClick={handleSendRequest} 
-                          className="w-full" 
-                          disabled={sendingRequest || !requestForm.fromSkillId || !requestForm.toSkillId || !requestForm.message}
-                        >
-                          {sendingRequest && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          <Send className="h-4 w-4 mr-2" />
-                          Send Request
-                        </Button>
                       </div>
-                    </DialogContent>
-                  </Dialog>
-                </CardContent>
-              </Card>
-            ))
+                      
+                      <div>
+                        <h4 className="text-sm font-medium text-blue-700 mb-2">
+                          Wants ({wantedSkills.length}):
+                        </h4>
+                        <div className="flex flex-wrap gap-1">
+                          {wantedSkills.map((userSkill) => (
+                            <Badge key={userSkill.id} variant="outline" className="text-xs">
+                              {userSkill.skill.name}
+                            </Badge>
+                          ))}
+                          {wantedSkills.length === 0 && (
+                            <span className="text-xs text-gray-500">No skills wanted</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button 
+                          className="w-full" 
+                          onClick={() => setSelectedProfile(profile)}
+                        >
+                          <Handshake className="h-4 w-4 mr-2" />
+                          Request Swap
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Request Skill Swap</DialogTitle>
+                          <DialogDescription>
+                            Send a swap request to {profile.name}
+                          </DialogDescription>
+                        </DialogHeader>
+                        
+                        {error && (
+                          <Alert>
+                            <AlertDescription>{error}</AlertDescription>
+                          </Alert>
+                        )}
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="fromSkill">Your Skill (You Offer)</Label>
+                            <Select 
+                              value={requestForm.fromSkillId} 
+                              onValueChange={(value) => setRequestForm({...requestForm, fromSkillId: value})}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select your skill" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getCurrentUserOfferedSkills().map((userSkill) => (
+                                  <SelectItem key={userSkill.id} value={userSkill.skill.id}>
+                                    {userSkill.skill.name} ({userSkill.proficiency_level})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {getCurrentUserOfferedSkills().length === 0 && (
+                              <p className="text-xs text-red-500 mt-1">You need to add skills to your profile first</p>
+                            )}
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="toSkill">Their Skill (You Want)</Label>
+                            <Select 
+                              value={requestForm.toSkillId} 
+                              onValueChange={(value) => setRequestForm({...requestForm, toSkillId: value})}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select their skill" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {offeredSkills.map((userSkill) => (
+                                  <SelectItem key={userSkill.id} value={userSkill.skill.id}>
+                                    {userSkill.skill.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="message">Message</Label>
+                            <Textarea
+                              id="message"
+                              placeholder="Introduce yourself and explain what you'd like to learn..."
+                              value={requestForm.message}
+                              onChange={(e) => setRequestForm({...requestForm, message: e.target.value})}
+                              rows={3}
+                            />
+                          </div>
+                          
+                          <Button 
+                            onClick={handleSendRequest} 
+                            className="w-full" 
+                            disabled={sendingRequest || !requestForm.fromSkillId || !requestForm.toSkillId || !requestForm.message}
+                          >
+                            {sendingRequest && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            <Send className="h-4 w-4 mr-2" />
+                            Send Request
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </CardContent>
+                </Card>
+              )
+            })
           )}
         </div>
       </div>

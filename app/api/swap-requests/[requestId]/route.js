@@ -12,7 +12,7 @@ const pool = new Pool({
 
 export async function PUT(request, { params }) {
   try {
-    const { requestId } = params;
+    const { requestId } = await params;
     const updateData = await request.json();
     const { status, cancelledReason } = updateData;
 
